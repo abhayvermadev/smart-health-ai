@@ -1,0 +1,6 @@
+{
+  "name": "Smart Health",
+  "description": "AI-Driven Health Center & Supply Chain Management with multilingual real-time tracking, doctor wifi attendance, and smart stock forecasting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
