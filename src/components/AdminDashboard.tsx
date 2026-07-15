@@ -27,6 +27,9 @@ import {
   Legend 
 } from "recharts";
 import { TRANSLATIONS, DistrictAnalytics, Facility, Medicine, Patient, Doctor, Ambulance, Bed } from "../types";
+import { SymptomHeatmap } from "./SymptomHeatmap";
+import { TrendAnalysis } from "./TrendAnalysis";
+import { ThresholdSettings } from "./ThresholdSettings";
 
 interface AdminDashboardProps {
   facilities: Facility[];
@@ -78,6 +81,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [procureQty, setProcureQty] = useState(250);
   const [procureIsCritical, setProcureIsCritical] = useState(false);
   const [procuring, setProcuring] = useState(false);
+
+  // Custom Low Stock warning thresholds loaded from localStorage
+  const [customThresholds, setCustomThresholds] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem("custom_warning_thresholds");
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    const defaults: Record<string, number> = {};
+    if (medicines) {
+      Object.values(medicines).forEach((m: any) => {
+        defaults[m.id] = m.minThreshold;
+      });
+    }
+    defaults["crit-1"] = 25;
+    defaults["crit-2"] = 20;
+    defaults["crit-3"] = 20;
+    defaults["crit-4"] = 20;
+    defaults["crit-5"] = 25;
+    return defaults;
+  });
+
+  const handleUpdateThresholds = (updated: Record<string, number>) => {
+    setCustomThresholds(updated);
+    try {
+      localStorage.setItem("custom_warning_thresholds", JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const refreshLocalState = async () => {
     try {
@@ -254,6 +290,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const [interventionLoadingId, setInterventionLoadingId] = useState<string | null>(null);
+
+  const handleIntervention = async (facilityId: string, actionType: string) => {
+    const loadingKey = `${facilityId}-${actionType}`;
+    setInterventionLoadingId(loadingKey);
+
+    let endpoint = "";
+    const bodyPayload: any = { facilityId };
+
+    if (actionType === "deploy-doctor") {
+      endpoint = "/api/admin/deploy-doctor-backup";
+    } else if (actionType === "deploy-reagents") {
+      endpoint = "/api/admin/deploy-reagents";
+    } else if (actionType === "deploy-supplies") {
+      endpoint = "/api/admin/dispatch-emergency-supply-kit";
+      bodyPayload.customThresholds = customThresholds;
+    } else if (actionType === "divert-patients") {
+      endpoint = "/api/admin/deploy-ambulance-backup";
+    }
+
+    if (!endpoint) {
+      setInterventionLoadingId(null);
+      return;
+    }
+
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bodyPayload)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("AI Admin Intervention Executed", {
+            body: data.message,
+          });
+        }
+        await refreshLocalState();
+        await onRefreshAnalytics();
+        window.alert(`[AI Smart Intervention Successful]\n\n${data.message}`);
+      } else {
+        window.alert(data.error || "Intervention dispatch failed.");
+      }
+    } catch (err) {
+      console.error("Intervention error:", err);
+      window.alert("Network error executing administrative intervention.");
+    } finally {
+      setInterventionLoadingId(null);
+    }
+  };
+
   const handleExportCSV = () => {
     let csv = "MED-INTEL CONNECT - DISTRICT HEALTH & SUPPLY CHAIN ANALYTICS\n";
     csv += `Generated: ${new Date().toLocaleString()}\n`;
@@ -377,6 +465,145 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
     });
   });
+
+  const computeLiveFlags = () => {
+    const liveFlags: Array<{
+      facilityId: string;
+      facilityName: string;
+      type: string;
+      severity: "High" | "Medium" | "Low";
+      reason: string;
+      actionType: "deploy-doctor" | "deploy-reagents" | "deploy-supplies" | "divert-patients";
+      actionLabel: string;
+    }> = [];
+
+    localFacilities.forEach(facility => {
+      // 1. Staffing Crisis Check
+      const activeDoctors = doctors.filter(d => d.facilityId === facility.id && d.attendance.clockIn !== null);
+      const pendingPatients = patients.filter(p => p.facilityId === facility.id && p.status === "OPD_Pending");
+      const offlineDocsCount = doctors.filter(d => d.facilityId === facility.id && d.attendance.clockIn === null).length;
+
+      if (pendingPatients.length > 0 && activeDoctors.length === 0) {
+        liveFlags.push({
+          facilityId: facility.id,
+          facilityName: facility.name,
+          type: "Staffing Deficit Crisis",
+          severity: "High",
+          reason: `High waiting time bottleneck: ${pendingPatients.length} pending patients queued with 0 doctors currently clocked-in.`,
+          actionType: "deploy-doctor",
+          actionLabel: offlineDocsCount > 0 ? `Deploy Doctor Backup` : "Deploy Emergency Medical Officer"
+        });
+      } else if (activeDoctors.length > 0 && (pendingPatients.length / activeDoctors.length) >= 4) {
+        liveFlags.push({
+          facilityId: facility.id,
+          facilityName: facility.name,
+          type: "High Patient Overload",
+          severity: "Medium",
+          reason: `${pendingPatients.length} patients waiting in queue under only ${activeDoctors.length} clocked-in practitioner(s).`,
+          actionType: "deploy-doctor",
+          actionLabel: "Deploy Staff Reinforcements"
+        });
+      }
+
+      // 2. Bed Over-occupancy Check
+      const fBeds = beds[facility.id] || [];
+      fBeds.forEach(bed => {
+        const occupancyRate = bed.total > 0 ? (bed.occupied / bed.total) * 100 : 0;
+        if (occupancyRate >= 100) {
+          liveFlags.push({
+            facilityId: facility.id,
+            facilityName: facility.name,
+            type: `${bed.department} Ward Exhausted`,
+            severity: "High",
+            reason: `Clinically critical bed shortage: ${bed.department} department is at 100% capacity (${bed.occupied}/${bed.total} beds filled).`,
+            actionType: "divert-patients",
+            actionLabel: "Dispatch Standby Support Ambulance"
+          });
+        }
+      });
+
+      // 3. Low Stock Check
+      let lowMedsCount = 0;
+      Object.entries(facility.inventory).forEach(([medId, qty]) => {
+        const thresh = customThresholds[medId] !== undefined ? customThresholds[medId] : (medicines[medId]?.minThreshold || 100);
+        if (qty <= thresh) {
+          lowMedsCount++;
+        }
+      });
+
+      if (facility.criticalInventory) {
+        Object.entries(facility.criticalInventory).forEach(([drugId, drug]: [string, any]) => {
+          const thresh = customThresholds[drugId] !== undefined ? customThresholds[drugId] : drug.minThreshold;
+          if (drug.stock <= thresh) {
+            lowMedsCount++;
+          }
+        });
+      }
+
+      if (lowMedsCount >= 3) {
+        liveFlags.push({
+          facilityId: facility.id,
+          facilityName: facility.name,
+          type: "Pharmacy Safety Shortage",
+          severity: "High",
+          reason: `Supply chain alert: ${lowMedsCount} critical therapies or general drugs are running below warning thresholds.`,
+          actionType: "deploy-supplies",
+          actionLabel: "Drone-Dispatch Emergency Supply Kit"
+        });
+      }
+
+      // 4. Lab Supply Blockage
+      if (facility.labInvestigations) {
+        const brokenLabs = Object.values(facility.labInvestigations).filter((l: any) => l.status === "Unavailable" || l.status === "Reagents Out of Stock");
+        if (brokenLabs.length > 0) {
+          liveFlags.push({
+            facilityId: facility.id,
+            facilityName: facility.name,
+            type: "Diagnostic Reagent Depletion",
+            severity: "Medium",
+            reason: `Diagnostic capacity affected: ${brokenLabs.length} investigations (${brokenLabs.map((l: any) => l.name).join(", ")}) out of reagents or equipment offline.`,
+            actionType: "deploy-reagents",
+            actionLabel: "Expedite Reagents & Calibrate"
+          });
+        }
+      }
+    });
+
+    // Merge with analyticsData?.flags if any (avoid duplicate facilityId + type)
+    const mergedFlags = [...liveFlags];
+    if (analyticsData?.flags) {
+      analyticsData.flags.forEach(af => {
+        const exists = mergedFlags.some(mf => mf.facilityId === af.facilityId && mf.type.toLowerCase().includes(af.type.toLowerCase().split(" ")[0]));
+        if (!exists) {
+          let actionType: "deploy-doctor" | "deploy-reagents" | "deploy-supplies" | "divert-patients" = "deploy-supplies";
+          let actionLabel = "Drone-Dispatch Emergency Supply Kit";
+          
+          if (af.type.toLowerCase().includes("staff") || af.type.toLowerCase().includes("doctor") || af.type.toLowerCase().includes("attendance")) {
+            actionType = "deploy-doctor";
+            actionLabel = "Deploy Doctor Backup";
+          } else if (af.type.toLowerCase().includes("bed") || af.type.toLowerCase().includes("capacity") || af.type.toLowerCase().includes("shortage")) {
+            actionType = "divert-patients";
+            actionLabel = "Dispatch Standby Support Ambulance";
+          } else if (af.type.toLowerCase().includes("lab") || af.type.toLowerCase().includes("reagent") || af.type.toLowerCase().includes("investigation")) {
+            actionType = "deploy-reagents";
+            actionLabel = "Expedite Reagents & Calibrate";
+          }
+          
+          mergedFlags.push({
+            facilityId: af.facilityId,
+            facilityName: af.facilityName,
+            type: af.type,
+            severity: af.severity as "High" | "Medium" | "Low",
+            reason: af.reason,
+            actionType,
+            actionLabel
+          });
+        }
+      });
+    }
+
+    return mergedFlags;
+  };
 
   return (
     <div className="space-y-8 p-4 sm:p-6 lg:p-8" id="admin-dashboard-container">
@@ -708,28 +935,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           {/* AI Under-resourced Center Intervention Flags - 6 cols */}
           <div className="xl:col-span-6 bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
-            <div className="flex items-center space-x-2 text-rose-600 font-bold border-b border-slate-100 pb-3">
-              <ShieldAlert className="h-4 w-4 shrink-0" />
-              <span className="text-xs uppercase tracking-wide">{t.underresourcedFlags}</span>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2 text-rose-600 font-bold">
+                <ShieldAlert className="h-4 w-4 shrink-0" />
+                <span className="text-xs uppercase tracking-wide">{t.underresourcedFlags}</span>
+              </div>
+              <span className="text-[10px] bg-rose-50 text-rose-700 border border-rose-150 font-bold px-2 py-0.5 rounded-full font-mono">
+                {computeLiveFlags().length} Active Warnings
+              </span>
             </div>
 
             <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-              {analyticsData?.flags.map((flag, idx) => (
-                <div key={idx} className="p-3 bg-red-50/20 border border-red-200/50 rounded-xl space-y-1.5 text-xs">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-slate-800">🏥 {flag.facilityName}</span>
-                    <span className="bg-red-100 text-red-700 font-mono font-black text-[9px] uppercase px-1.5 py-0.5 rounded">
-                      {flag.severity} RISK
-                    </span>
+              {computeLiveFlags().map((flag, idx) => {
+                const isLoading = interventionLoadingId === `${flag.facilityId}-${flag.actionType}`;
+                return (
+                  <div key={idx} className="p-3.5 bg-red-50/20 border border-red-200/50 rounded-xl space-y-2.5 text-xs animate-fadeIn">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-slate-800 flex items-center gap-1">🏥 {flag.facilityName}</span>
+                      <span className={`font-mono font-black text-[9px] uppercase px-1.5 py-0.5 rounded ${
+                        flag.severity === "High" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                      }`}>
+                        {flag.severity} RISK
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-slate-600 leading-normal text-[11px] font-sans">
+                        <strong className="text-slate-700">{flag.type}</strong> — {flag.reason}
+                      </p>
+                    </div>
+                    <div className="flex justify-end pt-1">
+                      <button
+                        onClick={() => handleIntervention(flag.facilityId, flag.actionType)}
+                        disabled={interventionLoadingId !== null}
+                        className={`font-mono text-[9px] font-bold uppercase px-3 py-1.5 rounded-lg border cursor-pointer transition-all duration-200 ${
+                          flag.severity === "High" 
+                            ? "bg-rose-600 hover:bg-rose-700 text-white border-rose-600 hover:border-rose-700 shadow-sm shadow-rose-600/15" 
+                            : "bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200"
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        {isLoading ? "Executing..." : flag.actionLabel}
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-slate-600 leading-normal text-[11px] font-sans">
-                    <strong className="text-slate-700">Flag Category: {flag.type}</strong> — {flag.reason}
-                  </p>
-                </div>
-              ))}
-              {(!analyticsData || analyticsData.flags.length === 0) && (
-                <div className="text-center py-8 text-slate-400 text-xs italic">
-                  No critical health facility operational flags active.
+                );
+              })}
+              {computeLiveFlags().length === 0 && (
+                <div className="text-center py-12 text-slate-400 text-xs italic">
+                  ✓ No critical underperforming or under-resourced clinic flags active.
                 </div>
               )}
             </div>
@@ -767,6 +1019,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
+      {/* SYMPTOM SURVEILLANCE & OUTBREAK SURVEILLANCE HEATMAP */}
+      <SymptomHeatmap 
+        facilities={facilities}
+        patients={patients}
+        language={language}
+      />
+
+      {/* RETROSPECTIVE OPERATIONS AND DEPLETION TRENDS */}
+      <TrendAnalysis 
+        facilities={facilities}
+        patients={patients}
+        medicines={medicines}
+        language={language}
+      />
+
+      {/* SAFETY LOGISTICS & LOW STOCK CONFIGURATOR */}
+      <ThresholdSettings 
+        facilities={facilities}
+        medicines={medicines}
+        customThresholds={customThresholds}
+        onSaveThresholds={handleUpdateThresholds}
+        language={language}
+      />
+
       {/* SECTION 3: CORE MEDICINE SUPPLY INVENTORY GRID */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-4 mb-6">
@@ -803,28 +1079,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {(Object.values(medicines) as Medicine[]).map((med) => (
-                <tr key={med.id} className="hover:bg-slate-50/50 transition">
-                  <td className="py-3.5 px-4 font-bold text-slate-800">💊 {med.name}</td>
-                  <td className="py-3.5 px-4 text-slate-500">{med.category}</td>
-                  <td className="py-3.5 px-4 font-mono">Min {med.minThreshold} {med.unit}</td>
-                  {facilities.filter(f => selectedFacilityId === "all" || f.id === selectedFacilityId).map(fac => {
-                    const stock = fac.inventory[med.id] || 0;
-                    const isLow = stock <= med.minThreshold;
-                    return (
-                      <td key={fac.id} className="py-3.5 px-4 text-center font-mono">
-                        <span className={`px-2.5 py-1 rounded-full font-bold ${
-                          isLow 
-                            ? "bg-red-50 text-red-700 border border-red-100" 
-                            : "bg-slate-50 text-slate-700"
-                        }`}>
-                          {stock}
-                        </span>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+              {(Object.values(medicines) as Medicine[]).map((med) => {
+                const threshold = customThresholds[med.id] !== undefined ? customThresholds[med.id] : med.minThreshold;
+                return (
+                  <tr key={med.id} className="hover:bg-slate-50/50 transition">
+                    <td className="py-3.5 px-4 font-bold text-slate-800">💊 {med.name}</td>
+                    <td className="py-3.5 px-4 text-slate-500">{med.category}</td>
+                    <td className="py-3.5 px-4 font-mono">Min {threshold} {med.unit}</td>
+                    {facilities.filter(f => selectedFacilityId === "all" || f.id === selectedFacilityId).map(fac => {
+                      const stock = fac.inventory[med.id] || 0;
+                      const isLow = stock <= threshold;
+                      return (
+                        <td key={fac.id} className="py-3.5 px-4 text-center font-mono">
+                          <span className={`px-2.5 py-1 rounded-full font-bold ${
+                            isLow 
+                              ? "bg-red-50 text-red-700 border border-red-100 animate-pulse" 
+                              : "bg-slate-50 text-slate-700"
+                          }`}>
+                            {stock}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -866,7 +1145,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 .flatMap(fac => {
                   if (!fac.criticalInventory) return [];
                   return Object.entries(fac.criticalInventory).map(([drugId, drug]: [string, any]) => {
-                    const pct = drug.stock / drug.minThreshold;
+                    const threshold = customThresholds[drugId] !== undefined ? customThresholds[drugId] : drug.minThreshold;
+                    const pct = drug.stock / threshold;
                     let statusColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
                     let statusLabel = "Adequate";
                     if (pct <= 1.0) {
@@ -884,7 +1164,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <td className="py-4 px-4 font-bold text-white">🩸 {drug.name}</td>
                         <td className="py-4 px-4 text-slate-300 font-medium">{fac.name}</td>
                         <td className="py-4 px-4 text-center font-mono text-white font-extrabold">{drug.stock} units</td>
-                        <td className="py-4 px-4 text-center font-mono text-slate-500">Min {drug.minThreshold}</td>
+                        <td className="py-4 px-4 text-center font-mono text-slate-500">Min {threshold}</td>
                         <td className="py-4 px-4 text-center">
                           <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold border ${statusColor}`}>
                             {statusLabel}
@@ -980,14 +1260,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 // Check general medicines
                 (Object.entries(medicines) as [string, Medicine][]).forEach(([medId, med]) => {
                   const stock = fac.inventory[medId] || 0;
-                  if (stock <= med.minThreshold) {
+                  const threshold = customThresholds[medId] !== undefined ? customThresholds[medId] : med.minThreshold;
+                  if (stock <= threshold) {
                     lowStockAlerts.push({
                       facilityId: fac.id,
                       facilityName: fac.name,
                       medicineId: medId,
                       medicineName: med.name,
                       currentStock: stock,
-                      minThreshold: med.minThreshold,
+                      minThreshold: threshold,
                       unit: med.unit,
                       isCritical: false
                     });
@@ -997,14 +1278,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 // Check critical medicines
                 if (fac.criticalInventory) {
                   Object.entries(fac.criticalInventory).forEach(([drugId, drug]: [string, any]) => {
-                    if (drug.stock <= drug.minThreshold) {
+                    const threshold = customThresholds[drugId] !== undefined ? customThresholds[drugId] : drug.minThreshold;
+                    if (drug.stock <= threshold) {
                       lowStockAlerts.push({
                         facilityId: fac.id,
                         facilityName: fac.name,
                         medicineId: drugId,
                         medicineName: drug.name,
                         currentStock: drug.stock,
-                        minThreshold: drug.minThreshold,
+                        minThreshold: threshold,
                         unit: "units",
                         isCritical: true
                       });

@@ -1611,6 +1611,183 @@ app.post("/api/admin/forecast", async (req, res) => {
   res.json(mockForecast);
 });
 
+// API Route: Smart Admin Intervention - Deploy Doctor Backup
+app.post("/api/admin/deploy-doctor-backup", (req, res) => {
+  const { facilityId } = req.body;
+  if (!facilityId) {
+    return res.status(400).json({ error: "Missing facilityId." });
+  }
+
+  const facility = db.facilities.find(f => f.id === facilityId);
+  if (!facility) {
+    return res.status(404).json({ error: "Facility not found." });
+  }
+
+  // Find offline doctors for this facility and clock them in
+  const offlineDocs = db.doctors.filter(d => d.facilityId === facilityId && d.attendance.clockIn === null);
+  if (offlineDocs.length === 0) {
+    return res.status(400).json({ error: "All registered doctors at this facility are already on duty." });
+  }
+
+  offlineDocs.forEach(doc => {
+    doc.attendance.clockIn = "09:00 AM (Emergency Deploy)";
+    doc.attendance.wifiVerified = true;
+  });
+
+  res.json({
+    success: true,
+    message: `Successfully deployed ${offlineDocs.length} on-call medical practitioners to ${facility.name} on active clinical emergency duty.`,
+    db
+  });
+});
+
+// API Route: Smart Admin Intervention - Deploy Lab Reagents & Fix Equipment
+app.post("/api/admin/deploy-reagents", (req, res) => {
+  const { facilityId } = req.body;
+  if (!facilityId) {
+    return res.status(400).json({ error: "Missing facilityId." });
+  }
+
+  const facility = db.facilities.find(f => f.id === facilityId);
+  if (!facility) {
+    return res.status(404).json({ error: "Facility not found." });
+  }
+
+  // Set all lab investigations to operational and adequate
+  if (facility.labInvestigations) {
+    Object.values(facility.labInvestigations).forEach((test: any) => {
+      test.status = "Available";
+      test.machineStatus = "Operational";
+      test.reagentAvailability = "Adequate";
+      test.pendingSamples = Math.max(0, test.pendingSamples - 8); // Clear most backlog
+    });
+  }
+
+  res.json({
+    success: true,
+    message: `Diagnostic reagent supply chain restored and bio-medical equipment calibrated successfully at ${facility.name}. All lab services are active.`,
+    db
+  });
+});
+
+// API Route: Smart Admin Intervention - Dispatch Emergency Supply Kit
+app.post("/api/admin/dispatch-emergency-supply-kit", (req, res) => {
+  const { facilityId, customThresholds } = req.body;
+  if (!facilityId) {
+    return res.status(400).json({ error: "Missing facilityId." });
+  }
+
+  const facility = db.facilities.find(f => f.id === facilityId);
+  if (!facility) {
+    return res.status(404).json({ error: "Facility not found." });
+  }
+
+  const thresholds = customThresholds || {};
+  let replenishedCount = 0;
+  const itemsReplenished: string[] = [];
+
+  // Check general medicines
+  Object.keys(db.medicines).forEach(medId => {
+    const stock = facility.inventory[medId] || 0;
+    const thresh = thresholds[medId] !== undefined ? thresholds[medId] : db.medicines[medId].minThreshold;
+    if (stock <= thresh) {
+      const dispatchQty = 250;
+      facility.inventory[medId] = stock + dispatchQty;
+      // Deduct from district store safely
+      if (db.districtStore[medId] >= dispatchQty) {
+        db.districtStore[medId] -= dispatchQty;
+      }
+      replenishedCount++;
+      itemsReplenished.push(db.medicines[medId].name);
+    }
+  });
+
+  // Check critical medicines
+  if (facility.criticalInventory) {
+    Object.entries(facility.criticalInventory).forEach(([drugId, drug]: [string, any]) => {
+      const thresh = thresholds[drugId] !== undefined ? thresholds[drugId] : drug.minThreshold;
+      if (drug.stock <= thresh) {
+        const dispatchQty = 50;
+        drug.stock += dispatchQty;
+        drug.lastSupplyDate = new Date().toISOString().split('T')[0];
+        // Deduct from district store safely
+        if (db.districtStore[drugId] >= dispatchQty) {
+          db.districtStore[drugId] -= dispatchQty;
+        }
+        replenishedCount++;
+        itemsReplenished.push(drug.name);
+      }
+    });
+  }
+
+  if (replenishedCount === 0) {
+    return res.status(400).json({ error: "No medicines are currently below warning thresholds at this facility." });
+  }
+
+  // Create a priority procurement record for auditing
+  const newOrderId = `ord-emerg-${db.procurementOrders.length + 1}`;
+  const firstItemName = itemsReplenished[0];
+  const description = `Emergency Admin Logistics Override. Instantly delivered ${replenishedCount} critical therapies (${itemsReplenished.join(", ")}) directly via emergency drone/express dispatch.`;
+
+  const newOrder: ProcurementOrder = {
+    id: newOrderId,
+    facilityId,
+    facilityName: facility.name,
+    medicineId: "emergency-kit",
+    medicineName: `Emergency Supply Kit (${firstItemName} + ${replenishedCount - 1} items)`,
+    isCritical: true,
+    quantity: replenishedCount * 150,
+    source: "District Store",
+    supplierName: "District Emergency Logistics Command",
+    status: "Delivered",
+    dispatchStatus: "Arrived",
+    shipmentTracking: `TRK-EMG-${Math.floor(1000 + Math.random() * 9000)}`,
+    estimatedDelivery: "Delivered (Direct Emergency Transit)",
+    priorityScore: 99,
+    urgencyReason: description
+  };
+
+  db.procurementOrders.push(newOrder);
+
+  res.json({
+    success: true,
+    message: `Emergency Express Logistics drone deployed! Transferred emergency therapeutic units directly to ${facility.name} to resolve low-stock triggers immediately.`,
+    db
+  });
+});
+
+// API Route: Smart Admin Intervention - Standby Standby Ambulance
+app.post("/api/admin/deploy-ambulance-backup", (req, res) => {
+  const { facilityId } = req.body;
+  if (!facilityId) {
+    return res.status(400).json({ error: "Missing facilityId." });
+  }
+
+  const facility = db.facilities.find(f => f.id === facilityId);
+  if (!facility) {
+    return res.status(404).json({ error: "Facility not found." });
+  }
+
+  // Find any available ambulance
+  const ambulance = db.ambulances.find(a => a.status === "Available");
+  if (!ambulance) {
+    return res.status(400).json({ error: "No available ambulances in the fleet. Please authorize bed-diversion protocols instead." });
+  }
+
+  ambulance.status = "En-Route";
+  ambulance.location = `Dispatched standby duty at ${facility.name}`;
+  ambulance.assignedPatientId = "standby";
+  ambulance.assignedPatientName = "Standby Emergency Response Support";
+  ambulance.patientStatus = "Clinic Capacity Standby";
+  ambulance.eta = "5 mins";
+
+  res.json({
+    success: true,
+    message: `Ambulance ${ambulance.plateNumber} dispatched for emergency triage standby and patient transport backup at ${facility.name}.`,
+    db
+  });
+});
+
 // Serve frontend assets or integrate with Vite development middleware
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
