@@ -188,6 +188,8 @@ interface Patient {
   date: string;
   symptoms: string;
   language: string;
+  phone?: string;
+  abhaId?: string;
   reports: {
     testName: string;
     date: string;
@@ -396,6 +398,69 @@ const generateMorePatients = (): Patient[] => {
     "Moderate stomach cramps with occasional nausea."
   ];
 
+  const PAST_CONSULTATIONS_TEMPLATES = [
+    {
+      diagnosis: "Mild Upper Respiratory Tract Infection (URTI)",
+      complaints: "Dry cough, mild fever, body fatigue.",
+      reports: [{ testName: "Complete Blood Count (CBC)", date: "2026-07-10", result: "WBC: 6.8k (Normal), Platelets: 210k (Normal)", status: "Ready" }],
+      prescribedMeds: [{ medId: "med-1", name: "Paracetamol 500mg", dosage: "1-0-1", duration: "3 days" }, { medId: "med-2", name: "Amoxicillin 500mg", dosage: "1-0-1", duration: "5 days" }]
+    },
+    {
+      diagnosis: "Viral Fever / Myalgia",
+      complaints: "Severe body ache and joint pain, intermittent chills.",
+      reports: [{ testName: "Dengue NS1 Antigen Test", date: "2026-07-11", result: "Dengue NS1: Negative, IgG/IgM: Negative", status: "Ready" }],
+      prescribedMeds: [{ medId: "med-1", name: "Paracetamol 500mg", dosage: "1-1-1", duration: "3 days" }]
+    },
+    {
+      diagnosis: "Gastroesophageal Reflux Disease (GERD)",
+      complaints: "Upper chest burning, sour burps, bloating.",
+      reports: [{ testName: "Blood Sugar (HbA1c)", date: "2026-07-12", result: "HbA1c: 5.6% (Normal)", status: "Ready" }],
+      prescribedMeds: [{ medId: "med-5", name: "Pantoprazole 40mg", dosage: "1-0-0 (Before Meals)", duration: "7 days" }]
+    },
+    {
+      diagnosis: "Acute Pharyngitis",
+      complaints: "Sore throat, difficult swallowing, cough.",
+      reports: [{ testName: "Complete Blood Count (CBC)", date: "2026-07-10", result: "WBC: 11.2k (Mildly Elevated)", status: "Ready" }],
+      prescribedMeds: [{ medId: "med-2", name: "Amoxicillin 500mg", dosage: "1-0-1", duration: "5 days" }]
+    },
+    {
+      diagnosis: "Osteoarthritis / Mild Knee Synovitis",
+      complaints: "Swollen knee joints, stiffness while walking.",
+      reports: [{ testName: "Serum Rheumatoid Factor Test", date: "2026-07-13", result: "RF Factor: Negative (Normal)", status: "Ready" }],
+      prescribedMeds: [{ medId: "med-1", name: "Ibuprofen 400mg", dosage: "1-0-1 (After Meals)", duration: "5 days" }]
+    },
+    {
+      diagnosis: "Contact Dermatitis / Allergic Rash",
+      complaints: "Itchy red rash on extremities, mild localized heat.",
+      reports: [{ testName: "Complete Blood Count (CBC)", date: "2026-07-12", result: "Eosinophils: 6% (Mildly Elevated)", status: "Ready" }],
+      prescribedMeds: [{ medId: "med-4", name: "Cetirizine 10mg", dosage: "0-0-1 (At Bedtime)", duration: "5 days" }]
+    },
+    {
+      diagnosis: "Essential Hypertension / Fatigue",
+      complaints: "Breathlessness on mild exertion, morning headache.",
+      reports: [{ testName: "Kidney Function Test (KFT)", date: "2026-07-11", result: "Serum Creatinine: 0.9 mg/dL (Normal)", status: "Ready" }],
+      prescribedMeds: [{ medId: "med-3", name: "Amlodipine 5mg", dosage: "1-0-0", duration: "30 days" }]
+    },
+    {
+      diagnosis: "Allergic Bronchitis",
+      complaints: "Persistent dry cough, congestion, nasal discharge.",
+      reports: [{ testName: "Complete Blood Count (CBC)", date: "2026-07-14", result: "WBC: 7.2k (Normal)", status: "Ready" }],
+      prescribedMeds: [{ medId: "med-4", name: "Cetirizine 10mg", dosage: "0-0-1", duration: "5 days" }]
+    },
+    {
+      diagnosis: "Hypertension / Pre-diabetes Monitoring",
+      complaints: "Lethargy, occasional dizziness.",
+      reports: [{ testName: "Blood Sugar (HbA1c)", date: "2026-07-14", result: "HbA1c: 6.2% (Prediabetic range)", status: "Ready" }],
+      prescribedMeds: [{ medId: "med-3", name: "Amlodipine 5mg", dosage: "1-0-0", duration: "30 days" }]
+    },
+    {
+      diagnosis: "Amoebiasis / Dyspepsia",
+      complaints: "Stomach cramps, loose stools, nausea.",
+      reports: [{ testName: "Stool Microscopy", date: "2026-07-13", result: "No cysts or trophozoites seen", status: "Ready" }],
+      prescribedMeds: [{ medId: "med-6", name: "ORS Hydration Powder", dosage: "As needed", duration: "3 days" }]
+    }
+  ];
+
   // Doctors and facilities
   const DOCTOR_SEEDS = [
     { docId: "doc-1", facId: "fac-1", dept: "General OPD", count: 4 },
@@ -417,7 +482,12 @@ const generateMorePatients = (): Patient[] => {
       const age = 15 + ((idx * 7) % 65);
       const gender = (idx % 2 === 0) ? "Male" : "Female";
       const symptom = GENERAL_SYMPTOMS[(idx * 11) % GENERAL_SYMPTOMS.length];
+      const template = PAST_CONSULTATIONS_TEMPLATES[idx % PAST_CONSULTATIONS_TEMPLATES.length];
       
+      const phoneSuffix = String(3210 + idx).padStart(4, "0");
+      const phone = `987654${phoneSuffix}`;
+      const abhaId = `11-${1000 + idx}-${2000 + idx}-${3000 + idx}`;
+
       generated.push({
         id: `pat-${idx}`,
         name: `${fName} ${lName}`,
@@ -431,8 +501,12 @@ const generateMorePatients = (): Patient[] => {
         date: "2026-07-15",
         symptoms: symptom,
         language: "en",
-        reports: [],
-        prescribedMeds: []
+        phone,
+        abhaId,
+        diagnosis: template.diagnosis,
+        complaints: template.complaints,
+        reports: JSON.parse(JSON.stringify(template.reports)),
+        prescribedMeds: JSON.parse(JSON.stringify(template.prescribedMeds))
       });
       patientCounter++;
     }
@@ -454,7 +528,12 @@ const generateMorePatients = (): Patient[] => {
       const age = 18 + ((idx * 7) % 60);
       const gender = (idx % 2 === 0) ? "Male" : "Female";
       const symptom = GENERAL_SYMPTOMS[(idx * 11) % GENERAL_SYMPTOMS.length];
-      
+      const template = PAST_CONSULTATIONS_TEMPLATES[idx % PAST_CONSULTATIONS_TEMPLATES.length];
+
+      const phoneSuffix = String(3210 + idx).padStart(4, "0");
+      const phone = `987654${phoneSuffix}`;
+      const abhaId = `11-${1000 + idx}-${2000 + idx}-${3000 + idx}`;
+
       generated.push({
         id: `pat-${idx}`,
         name: `${fName} ${lName}`,
@@ -468,8 +547,12 @@ const generateMorePatients = (): Patient[] => {
         date: "2026-07-15",
         symptoms: symptom,
         language: "en",
-        reports: [],
-        prescribedMeds: []
+        phone,
+        abhaId,
+        diagnosis: template.diagnosis,
+        complaints: template.complaints,
+        reports: JSON.parse(JSON.stringify(template.reports)),
+        prescribedMeds: JSON.parse(JSON.stringify(template.prescribedMeds))
       });
       patientCounter++;
     }
@@ -492,6 +575,10 @@ const BASE_INITIAL_PATIENTS: Patient[] = [
     date: "2026-07-08",
     symptoms: "High fever for 3 days, body aches, shivering, headache.",
     language: "en",
+    phone: "9876543210",
+    abhaId: "11-2222-3333-4444",
+    diagnosis: "Dengue Fever (Early Stage)",
+    complaints: "High fever for 3 days, body aches, shivering, headache.",
     reports: [
       { testName: "Complete Blood Count (CBC)", date: "2026-07-08", result: "Platelets: 160k (Normal), WBC: 8.5k (Normal)", status: "Ready" },
       { testName: "Rapid Malaria & Dengue Test", date: "2026-07-08", result: "Dengue NS1 Antigen: POSITIVE", status: "Ready" }
@@ -514,10 +601,17 @@ const BASE_INITIAL_PATIENTS: Patient[] = [
     date: "2026-07-08",
     symptoms: "Routine 3rd-trimester pregnancy checkup, mild lower back pain.",
     language: "hi",
+    phone: "9876543211",
+    abhaId: "11-2222-3333-4445",
+    diagnosis: "Healthy Pregnancy - 32 Weeks Gestation",
+    complaints: "Routine 3rd-trimester pregnancy checkup, mild lower back pain.",
     reports: [
       { testName: "Obstetric Ultrasound", date: "2026-07-07", result: "Normal fetal growth, 32 weeks gestation, adequate amniotic fluid.", status: "Ready" }
     ],
-    prescribedMeds: []
+    prescribedMeds: [
+      { medId: "med-8", name: "Iron & Folic Acid", dosage: "0-1-0 (After Lunch)", duration: "30 days" },
+      { medId: "med-9", name: "Calcium Carbonate", dosage: "1-0-0 (After Breakfast)", duration: "30 days" }
+    ]
   },
   {
     id: "pat-3",
@@ -532,6 +626,10 @@ const BASE_INITIAL_PATIENTS: Patient[] = [
     date: "2026-07-08",
     symptoms: "Severe vomiting, diarrhea, dry lips, lethargy.",
     language: "en",
+    phone: "9876543212",
+    abhaId: "11-2222-3333-4446",
+    diagnosis: "Acute Gastroenteritis with moderate dehydration",
+    complaints: "Severe vomiting, diarrhea, dry lips, lethargy.",
     reports: [
       { testName: "Serum Electrolytes Test", date: "2026-07-08", result: "Sodium: 132 mEq/L (Low), Potassium: 3.2 mEq/L (Low)", status: "Ready" }
     ],
@@ -553,10 +651,17 @@ const BASE_INITIAL_PATIENTS: Patient[] = [
     date: "2026-07-08",
     symptoms: "Chest congestion, chronic cough, shortness of breath on exertion.",
     language: "en",
+    phone: "9876543213",
+    abhaId: "11-2222-3333-4447",
+    diagnosis: "Chronic Bronchitis with secondary bacterial infection",
+    complaints: "Chest congestion, chronic cough, shortness of breath on exertion.",
     reports: [
       { testName: "Sputum AFB", date: "2026-07-08", result: "Negative for Acid Fast Bacilli", status: "Ready" }
     ],
-    prescribedMeds: []
+    prescribedMeds: [
+      { medId: "med-2", name: "Amoxicillin 500mg", dosage: "1-0-1", duration: "5 days" },
+      { medId: "med-7", name: "Montelukast 10mg", dosage: "0-0-1 (At Bedtime)", duration: "10 days" }
+    ]
   }
 ];
 
@@ -1362,7 +1467,7 @@ app.post("/api/patient/request-ambulance", (req, res) => {
 
 // API Route: Patient OPD ticket booking (AI symptom classification & translation)
 app.post("/api/patient/book-opd", async (req, res) => {
-  const { name, age, gender, facilityId, symptoms, language } = req.body;
+  const { name, age, gender, facilityId, symptoms, language, phone, abhaId } = req.body;
 
   if (!name || !facilityId || !symptoms) {
     return res.status(400).json({ error: "Missing required booking details." });
@@ -1476,6 +1581,8 @@ app.post("/api/patient/book-opd", async (req, res) => {
     date: new Date().toISOString().split("T")[0],
     symptoms,
     language: language || "en",
+    phone,
+    abhaId,
     reports,
     prescribedMeds: []
   };

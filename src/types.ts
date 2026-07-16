@@ -91,6 +91,8 @@ export interface Patient {
   date: string;
   symptoms: string;
   language: string;
+  phone?: string;
+  abhaId?: string;
   reports: {
     testName: string;
     date: string;

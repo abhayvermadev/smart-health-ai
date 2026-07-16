@@ -476,13 +476,13 @@ export const SymptomHeatmap: React.FC<SymptomHeatmapProps> = ({
           </div>
           {activeOutbreaks.length > 0 && (
             <span className="bg-red-500 text-white text-[9px] font-black px-2 py-0.5 rounded-full animate-pulse uppercase tracking-wider font-mono">
-              ⚠️ {activeOutbreaks.length} OUTBREAK CLUSTERS ACTIVE
+              ⚠️ {activeOutbreaks.length} OUTBREAK CLUSTERS ACTIVE (showing top 2)
             </span>
           )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {activeOutbreaks.map((outbreak, idx) => {
+          {activeOutbreaks.slice(0, 2).map((outbreak, idx) => {
             // Suggest corrective supply inventory
             let recommendedMeds = "Paracetamol & ORS Electrolytes";
             if (outbreak.symptomId === "fever") recommendedMeds = "Paracetamol 500mg, Amoxicillin 500mg, ORS";

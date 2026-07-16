@@ -161,7 +161,11 @@ export default function App() {
       const res = await fetch("/api/patient/book-opd", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bookingData)
+        body: JSON.stringify({
+          ...bookingData,
+          phone: session?.phone,
+          abhaId: session?.abhaId
+        })
       });
       const data = await res.json();
       if (data && data.success) {

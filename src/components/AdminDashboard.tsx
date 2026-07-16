@@ -769,12 +769,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
             <span className="bg-rose-100 text-rose-800 text-[10px] font-bold px-2.5 py-1 rounded-md border border-rose-200 font-mono">
-              Action Required: {localNotifications.length} Pending Overrides
+              Action Required: {localNotifications.length} Pending Overrides (showing top 2)
             </span>
           </div>
 
           <div className="grid grid-cols-1 gap-3">
-            {localNotifications.map((notif) => (
+            {localNotifications.slice(0, 2).map((notif) => (
               <div 
                 key={notif.id} 
                 className="bg-white border border-rose-150 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-rose-300 transition shadow-xs"
@@ -1124,36 +1124,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
-      {/* OFFICIAL CENSUS & NFHS-5 PUBLIC INDICATORS BASELINE REFERENCE */}
-      <OfficialPublicHealthIndicators 
-        language={language}
-        onApplyThresholdCalibration={handleApplyCalibration}
-      />
-
-      {/* SYMPTOM SURVEILLANCE & OUTBREAK SURVEILLANCE HEATMAP */}
-      <SymptomHeatmap 
-        facilities={facilities}
-        patients={patients}
-        language={language}
-      />
-
-      {/* RETROSPECTIVE OPERATIONS AND DEPLETION TRENDS */}
-      <TrendAnalysis 
-        facilities={facilities}
-        patients={patients}
-        medicines={medicines}
-        language={language}
-      />
-
-      {/* SAFETY LOGISTICS & LOW STOCK CONFIGURATOR */}
-      <ThresholdSettings 
-        facilities={facilities}
-        medicines={medicines}
-        customThresholds={customThresholds}
-        onSaveThresholds={handleUpdateThresholds}
-        language={language}
-      />
-
       {/* SECTION 3: CORE MEDICINE SUPPLY INVENTORY GRID */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-4 mb-6">
@@ -1414,7 +1384,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 );
               }
 
-              return lowStockAlerts.map((alert, idx) => {
+              return lowStockAlerts.slice(0, 4).map((alert, idx) => {
                 const storeQty = localDistrictStore[alert.medicineId] || 0;
                 const isStoreAvailable = storeQty >= 100;
                 const isDispatching = actioningId === `${alert.facilityId}-${alert.medicineId}-dispatch`;
@@ -1783,6 +1753,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* SAFETY LOGISTICS & LOW STOCK CONFIGURATOR */}
+      <ThresholdSettings 
+        facilities={facilities}
+        medicines={medicines}
+        customThresholds={customThresholds}
+        onSaveThresholds={handleUpdateThresholds}
+        language={language}
+      />
+
+      {/* SYMPTOM SURVEILLANCE & OUTBREAK SURVEILLANCE HEATMAP */}
+      <SymptomHeatmap 
+        facilities={facilities}
+        patients={patients}
+        language={language}
+      />
+
+      {/* OFFICIAL CENSUS & NFHS-5 PUBLIC INDICATORS BASELINE REFERENCE */}
+      <OfficialPublicHealthIndicators 
+        language={language}
+        onApplyThresholdCalibration={handleApplyCalibration}
+      />
+
+      {/* RETROSPECTIVE OPERATIONS AND DEPLETION TRENDS */}
+      <TrendAnalysis 
+        facilities={facilities}
+        patients={patients}
+        medicines={medicines}
+        language={language}
+      />
 
       {/* SECTION 4: DOCTOR ATTENDANCE & AMBULANCE TRACKING */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 font-sans">

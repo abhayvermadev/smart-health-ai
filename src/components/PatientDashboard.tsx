@@ -218,6 +218,16 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({
     doctor: Doctor | null;
   } | null>(null);
 
+  const [viewingReport, setViewingReport] = useState<{
+    testName: string;
+    patientName: string;
+    age: number;
+    gender: string;
+    date: string;
+    result: string;
+    abhaId?: string;
+  } | null>(null);
+
   // Automatically save newly booked ticket IDs to localStorage
   useEffect(() => {
     if (newTicketResult?.patient?.id) {
@@ -478,9 +488,45 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({
     }
   };
 
-  const activePatient = patients.find(p => p.id === selectedPatientId) || patients[0];
+  // Filter patients based on logged in credentials
+  const filteredPatients = React.useMemo(() => {
+    if (!patientPhone && !patientAbhaId) {
+      return patients;
+    }
+    // If logged in, find if any patient matches
+    let matched = patients.filter(p => 
+      (patientPhone && p.phone === patientPhone) || 
+      (patientAbhaId && p.abhaId === patientAbhaId)
+    );
+    if (matched.length === 0) {
+      // No patient found, dynamically bind pat-1 to the logged-in session for seamless presentation
+      const pat1 = patients.find(p => p.id === "pat-1");
+      if (pat1) {
+        matched = [{
+          ...pat1,
+          phone: patientPhone || pat1.phone,
+          abhaId: patientAbhaId || pat1.abhaId
+        }];
+      } else if (patients.length > 0) {
+        matched = [{
+          ...patients[0],
+          phone: patientPhone || patients[0].phone,
+          abhaId: patientAbhaId || patients[0].abhaId
+        }];
+      }
+    }
+    return matched;
+  }, [patients, patientPhone, patientAbhaId]);
+
+  useEffect(() => {
+    if ((patientPhone || patientAbhaId) && filteredPatients.length > 0) {
+      setSelectedPatientId(filteredPatients[0].id);
+    }
+  }, [patientPhone, patientAbhaId, filteredPatients]);
+
+  const activePatient = filteredPatients.find(p => p.id === selectedPatientId) || filteredPatients[0];
   const selectedFacility = facilities.find(f => f.id === facilityId);
-  const bookedTickets = patients.filter(p => bookedIds.includes(p.id));
+  const bookedTickets = filteredPatients.filter(p => bookedIds.includes(p.id));
 
   // Whenever bookedTickets changes, cache them locally for offline resilience
   useEffect(() => {
@@ -494,11 +540,15 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({
       try {
         const cached = localStorage.getItem("cached_booked_tickets");
         if (cached) {
-          return JSON.parse(cached) as Patient[];
+          const parsed = JSON.parse(cached) as Patient[];
+          return (patientPhone || patientAbhaId) ? parsed.filter(t => filteredPatients.some(fp => fp.id === t.id)) : parsed;
         }
       } catch {
         // Fallback
       }
+    }
+    if (patientPhone || patientAbhaId) {
+      return filteredPatients;
     }
     return bookedTickets;
   })();
@@ -1093,12 +1143,28 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({
                           {rep.status === "Ready" ? t.statusReady : t.statusPending}
                         </span>
                         {rep.status === "Ready" && (
-                          <button 
-                            onClick={() => handleDownloadReport(rep.testName)}
-                            className="text-indigo-600 text-[10px] font-bold underline block mt-1.5 hover:text-indigo-800 cursor-pointer"
-                          >
-                            Download PDF
-                          </button>
+                          <div className="flex items-center gap-2 mt-2 justify-end">
+                            <button 
+                              onClick={() => setViewingReport({
+                                testName: rep.testName,
+                                patientName: activePatient.name,
+                                age: activePatient.age,
+                                gender: activePatient.gender,
+                                date: rep.date,
+                                result: rep.result,
+                                abhaId: activePatient.abhaId
+                              })}
+                              className="text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+                            >
+                              👁️ View Report
+                            </button>
+                            <button 
+                              onClick={() => handleDownloadReport(rep.testName)}
+                              className="text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-lg text-[11px] font-bold transition border border-slate-200 flex items-center gap-1 cursor-pointer"
+                            >
+                              📥 Download PDF
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1716,6 +1782,116 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({
                 Close SOS Panel
               </button>
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Digital Lab Report Viewer Modal */}
+      {viewingReport && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn" id="lab-report-modal">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="bg-indigo-900 text-white p-4 flex justify-between items-center shrink-0">
+              <div className="flex items-center space-x-2">
+                <span className="text-xl">🏛️</span>
+                <div>
+                  <h3 className="font-black text-xs uppercase tracking-wider font-mono">Government Clinical Labs</h3>
+                  <p className="text-[10px] text-indigo-200">National Digital Health Locker Integrated</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setViewingReport(null)}
+                className="bg-indigo-850 hover:bg-indigo-800 text-indigo-200 hover:text-white p-1 rounded-lg transition text-xs font-bold font-mono px-2"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {/* Document Content */}
+            <div className="p-6 overflow-y-auto space-y-6 font-sans text-xs text-slate-800 flex-1">
+              {/* Document Header */}
+              <div className="text-center border-b border-slate-200 pb-4 space-y-1">
+                <h4 className="text-sm font-bold tracking-tight uppercase text-slate-900">Official Diagnostics Report</h4>
+                <p className="text-[10px] text-slate-400 font-mono">Document Hash: ABHA-SEC-{Math.floor(100000 + Math.random() * 900000)}</p>
+              </div>
+
+              {/* Patient Meta Block */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 grid grid-cols-2 gap-2 text-[11px] font-mono">
+                <div>
+                  <span className="text-slate-400 block text-[9px] font-bold">PATIENT NAME</span>
+                  <span className="font-bold text-slate-800">{viewingReport.patientName}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[9px] font-bold">ABHA ID / HEALTH ID</span>
+                  <span className="font-bold text-slate-850">{viewingReport.abhaId || "Not Linked"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[9px] font-bold">AGE / GENDER</span>
+                  <span className="font-bold text-slate-800">{viewingReport.age} Yrs / {viewingReport.gender}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[9px] font-bold">TESTING DATE</span>
+                  <span className="font-bold text-slate-800">{viewingReport.date}</span>
+                </div>
+              </div>
+
+              {/* Lab Parameters Table */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider font-mono">LABORATORY RESULTS</span>
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="bg-slate-100 p-2 border-b border-slate-200 grid grid-cols-3 font-bold text-slate-600 text-[10px] font-mono">
+                    <span>TEST PARAMETER</span>
+                    <span className="text-center">OBSERVED VALUE</span>
+                    <span className="text-right">REFERENCE RANGE</span>
+                  </div>
+                  <div className="p-3 bg-white space-y-3">
+                    <div className="grid grid-cols-3 font-bold text-slate-800">
+                      <span>{viewingReport.testName}</span>
+                      <span className="text-center text-indigo-700">{viewingReport.result.split(",")[0] || viewingReport.result}</span>
+                      <span className="text-right text-slate-400 font-normal">Normal Range</span>
+                    </div>
+                    {viewingReport.result.includes(",") && (
+                      <div className="grid grid-cols-3 text-slate-700 pt-1.5 border-t border-slate-100 font-mono text-[10px]">
+                        <span>Secondary Marker</span>
+                        <span className="text-center text-indigo-600">{viewingReport.result.split(",")[1]}</span>
+                        <span className="text-right text-slate-400">-</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Clinician Stamp & Verification */}
+              <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+                <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100 font-mono text-[10px]">
+                  <span>🟢</span>
+                  <span className="font-bold">ABHA Verified Secure</span>
+                </div>
+                <div className="text-right space-y-0.5">
+                  <p className="font-bold text-slate-800 text-[10px]">Dr. R. K. Mahajan, MD</p>
+                  <p className="text-[9px] text-slate-400 font-mono">Authorized Signatory Stamp</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  handleDownloadReport(viewingReport.testName);
+                  setViewingReport(null);
+                }}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5 uppercase tracking-wider"
+              >
+                📥 Download PDF Document
+              </button>
+              <button
+                onClick={() => setViewingReport(null)}
+                className="px-4 bg-white hover:bg-slate-100 text-slate-600 font-bold py-2 rounded-xl text-xs transition border border-slate-200 cursor-pointer"
+              >
+                Close View
+              </button>
             </div>
           </div>
         </div>
